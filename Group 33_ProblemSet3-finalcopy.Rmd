@@ -1,0 +1,531 @@
+---
+title: "Predicting The 2020 American Federal Election Results"
+author: "Cindy Gao(1005223410), Yanrong Huo(1004720965), Aiting Zhang(1004926066)"
+date: "2 November 2020"
+output:
+  pdf_document:
+    latex_engine: xelatex
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+## Code and data supporting this analysis is available at: https://github.com/aitingzhang47/STA304-Group33-ProbelmSet3.git
+
+## Cleaning survey data
+```{r}
+library(haven)
+library(tidyverse)
+
+# Read in the raw data
+raw_data_survey <- read_dta("/Users/huoyanrong/Desktop/PS3 submit/ns20200625/ns20200625.dta")
+raw_data_survey <- labelled::to_factor(raw_data_survey)
+#keeping the nine variables we chose to study
+reduced_data_survey <- 
+  raw_data_survey %>% 
+  select(registration,
+         vote_intention,
+         vote_2020,
+         age,
+         gender,
+         race_ethnicity,
+         household_income,
+         education,
+         state)
+
+#Cleaning the data; only keeping those who are eligible to vote, will/may vote and only those
+#voting Trump or Biden
+
+new_data_survey<-reduced_data_survey %>% 
+  filter(registration =="Registered"&
+           (vote_intention == "Yes, I will vote"|vote_intention == "Not sure")&
+           (vote_2020 =="Donald Trump"|vote_2020 =="Joe Biden"))
+
+new_data_survey<-
+  new_data_survey %>%
+  mutate(vote_trump = 
+           ifelse(vote_2020=="Donald Trump", 1, 0))
+
+new_data_survey<-na.omit(new_data_survey)
+
+```
+
+
+```{r}
+library(haven)
+library(tidyverse)
+library(ggplot2)
+library(ggpubr)
+
+raw_data_census <- read_csv("/Users/huoyanrong/Desktop/PS3 submit/usa_00003.csv")
+
+raw_data_census <- labelled::to_factor(raw_data_census)
+
+# Choosing variables from our census that match our survey variables
+reduced_data_census <- 
+  raw_data_census %>% 
+  select(STATEFIP,
+         HHINCOME,
+         PERWT,
+         SEX,
+         AGE,
+         RACE,
+         CITIZEN,
+         EDUCD)
+
+#getting rid of the useless ones in each variables
+new_data_census<-reduced_data_census %>% filter(HHINCOME!=9999999)
+
+new_data_census<-reduced_data_census %>% filter(STATEFIP!=99)
+
+new_data_census<-reduced_data_census %>% filter(EDUCD!=000)
+
+new_data_census<-reduced_data_census %>% filter(EDUCD!=001)
+
+#only keeping those who are eligible to vote to match with our survey
+new_data_census<-reduced_data_census %>% filter(AGE>=18 & (CITIZEN =="1"|CITIZEN =="2"))
+
+new_data_census<-na.omit(new_data_census)
+
+
+new_data_survey<-new_data_survey %>% 
+  mutate(Age = case_when(age <=20 ~ '20 or less',
+                              age >20  & age <= 30 ~ '21 to 30',
+                              age >30  & age <= 40 ~ '31 to 40',
+                              age >40  & age <= 50 ~ '41 to 50',
+                              age >50  & age <= 60 ~ '51 to 60',
+                              age >60  & age <= 70 ~ '61 to 70',
+                              age >70  & age <= 80 ~ '71 to 80',
+                              age >80 ~ 'above 80')) 
+
+new_data_census<-new_data_census %>% 
+  mutate(Age = case_when(AGE <=20 ~ '20 or less',
+                               AGE >20  & AGE <= 30 ~ '21 to 30',
+                               AGE >30  & AGE <= 40 ~ '31 to 40',
+                               AGE >40  & AGE <= 50 ~ '41 to 50',
+                               AGE >50  & AGE <= 60 ~ '51 to 60',
+                               AGE >60  & AGE <= 70 ~ '61 to 70',
+                               AGE >70  & AGE <= 80 ~ '71 to 80',
+                               AGE >80 ~ 'above 80' )) 
+
+new_data_census$AGE<-NULL
+new_data_survey$age<-NULL
+
+unique(new_data_census$Age) #checking to see if match
+unique(new_data_survey$Age)
+
+new_data_survey<-rename(new_data_survey,Gender=gender)
+new_data_census<-rename(new_data_census,Gender=SEX)
+
+new_data_census$Gender<-ifelse(new_data_census$Gender=="1","Male","Female")
+
+new_data_survey$Gender <- as.character(new_data_survey$Gender)
+
+unique(new_data_census$Gender)
+unique(new_data_survey$Gender)
+
+#survey
+new_data_survey<-new_data_survey %>% 
+  mutate(Race = case_when(race_ethnicity == "White" ~ 'White',
+                          race_ethnicity == "Black, or African American" ~ 'Black, or African American',
+                          race_ethnicity == "American Indian or Alaska Native"~"American Indian or Alaska Native",
+                          race_ethnicity == "Asian (Chinese)" ~ 'Chinese',
+                          race_ethnicity == "Asian (Japanese)" ~ 'Japanese',
+                          race_ethnicity == "Asian (Asian Indian)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Asian (Filipino)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Asian (Korean)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Asian (Vietnamese)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Asian (Other)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Pacific Islander (Native Hawaiian)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Pacific Islander (Guamanian)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Pacific Islander (Samoan)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Pacific Islander (Other)" ~ "other asian or pacific islander",
+                          race_ethnicity == "Some other race" ~ 'Other race'
+  )) 
+new_data_survey$race_ethnicity<-NULL
+
+#census data
+new_data_census<-new_data_census %>% 
+  mutate(Race = case_when(RACE == 1 ~ "White",
+                                 RACE == 2 ~ "Black, or African American",
+                                 RACE == 3 ~ "American Indian or Alaska Native",
+                                 RACE == 4 ~ "Chinese",
+                                 RACE == 5 ~ "Japanese",
+                                 RACE == 6 ~ "other asian or pacific islander",
+                                 RACE == 7 ~ "Other race",
+                                 RACE == 8 ~ "Other race",
+                                 RACE == 9 ~ "Other race",
+                                 
+  )) 
+
+new_data_census$RACE<-NULL
+
+unique(new_data_census$Race)
+unique(new_data_survey$Race)
+
+
+
+new_data_survey<-rename(new_data_survey,Household_Income=household_income)
+
+new_data_census<-new_data_census %>% 
+  mutate(Household_Income = case_when(HHINCOME<=14999 ~ "Less than $14,999",
+                                      HHINCOME>=15000 & HHINCOME<=19999~"$15,000 to $19,999",
+                                      HHINCOME>=20000 & HHINCOME<=24999~"$20,000 to $24,999",
+                                      HHINCOME>=25000 & HHINCOME<=29999~"$25,000 to $29,999",
+                                      HHINCOME>=30000 & HHINCOME<=34999~"$30,000 to $34,999",
+                                      HHINCOME>=35000 & HHINCOME<=39999~"$35,000 to $39,999",
+                                      HHINCOME>=40000 & HHINCOME<=44999~"$40,000 to $44,999",
+                                      HHINCOME>=45000 & HHINCOME<=49999~"$45,000 to $49,999",
+                                      HHINCOME>=50000 & HHINCOME<=54999~"$50,000 to $54,999",
+                                      HHINCOME>=55000 & HHINCOME<=59999~"$55,000 to $59,999",
+                                      HHINCOME>=60000 & HHINCOME<=64999~"$60,000 to $64,999",
+                                      HHINCOME>=65000 & HHINCOME<=69999~"$65,000 to $69,999",
+                                      HHINCOME>=70000 & HHINCOME<=74999~"$70,000 to $74,999",
+                                      HHINCOME>=75000 & HHINCOME<=79999~"$75,000 to $79,999",
+                                      HHINCOME>=80000 & HHINCOME<=84999~"$80,000 to $84,999",
+                                      HHINCOME>=85000 & HHINCOME<=89999~"$85,000 to $89,999",
+                                      HHINCOME>=90000 & HHINCOME<=94999~"$90,000 to $94,999",
+                                      HHINCOME>=95000 & HHINCOME<=99999~"$95,000 to $99,999",
+                                      HHINCOME>=100000 & HHINCOME<=124999~"$100,000 to $124,999",
+                                      HHINCOME>=125000 & HHINCOME<=149999~"$125,000 to $149,999",
+                                      HHINCOME>=150000 & HHINCOME<=174999~"$150,000 to $174,999",
+                                      HHINCOME>=175000 & HHINCOME<=199999~"$175,000 to $199,999",
+                                      HHINCOME>=200000 & HHINCOME<=249999~"$200,000 to $249,999",
+                                      HHINCOME>=250000~"$250,000 and above")) 
+
+new_data_census$HHINCOME<-NULL
+
+unique(new_data_census$Household_Income) #checking to see if same
+unique(new_data_survey$Household_Income)
+
+new_data_survey<-rename(new_data_survey,Education=education)
+
+new_data_census$EDUCD <- as.character(new_data_census$EDUCD) 
+
+new_data_census<-new_data_census %>% 
+  mutate(Education = case_when(EDUCD == "71" ~ 'Completed some college, but no degree',
+                          EDUCD == "64" ~ 'High school graduate',
+                          EDUCD == "116"~'Doctorate degree',
+                          EDUCD == "65" ~ 'Completed some college, but no degree',
+                          EDUCD == "61" ~ 'Completed some high school',
+                          EDUCD == "81" ~ "Associate Degree",
+                          EDUCD == "114" ~ "Masters degree",
+                          EDUCD == "115" ~ "Masters degree",
+                          EDUCD == "2" ~ "3rd Grade or less",
+                          EDUCD == "50" ~ "Completed some high school",
+                          EDUCD == "40" ~ "Completed some high school",
+                          EDUCD == "26" ~ "Middle School - Grades 4 - 8",
+                          EDUCD == "30" ~ "Completed some high school",
+                          EDUCD == "25" ~ "Middle School - Grades 4 - 8",
+                          EDUCD == "23" ~ 'Middle School - Grades 4 - 8',
+                          EDUCD == "11" ~ '3rd Grade or less',
+                          EDUCD == "17" ~ 'Middle School - Grades 4 - 8',
+                          EDUCD == "22" ~ 'Middle School - Grades 4 - 8',
+                          EDUCD == "15" ~ '3rd Grade or less',
+                          EDUCD == "16" ~ '3rd Grade or less',
+                          EDUCD == "14" ~ '3rd Grade or less',
+                          EDUCD == "12" ~ '3rd Grade or less')) 
+
+new_data_survey<-new_data_survey %>% 
+  mutate(Education = case_when(Education == "Other post high school vocational training" ~ 'High school graduate',
+                               Education == "College Degree (such as B.A., B.S.)" ~ 'Associate Degree',
+                               Education == "Completed some graduate, but no degree"~'Associate Degree',
+                               Education == "3rd Grade or less"~'3rd Grade or less',
+                               Education == "Middle School - Grades 4 - 8"~'Middle School - Grades 4 - 8',
+                               Education == "Completed some high school"~'Completed some high school',
+                               Education == "High school graduate"~'High school graduate',
+                               Education == "Completed some college, but no degree"~'Completed some college, but no degree',
+                               Education == "Associate Degree"~'Associate Degree',
+                               Education == "College Degree (such as B.A., B.S.)"~'College Degree (such as B.A., B.S.)',
+                               Education == "Masters degree"~'Masters degree',
+                               Education == "Doctorate degree"~'Doctorate degree')) 
+
+new_data_census<-na.omit(new_data_census)
+new_data_survey<-na.omit(new_data_survey)
+new_data_census$EDUCD<-NULL
+
+unique(new_data_census$Education) #checking
+unique(new_data_survey$Education)
+
+new_data_survey<-rename(new_data_survey,State=state)
+
+new_data_census$STATEFIP <- as.character(new_data_census$STATEFIP)
+
+new_data_census<-new_data_census %>% 
+  mutate(State = case_when(STATEFIP=="1"~"AL",
+                           STATEFIP=="2"~"AK",
+                           STATEFIP=="4"~"AZ",
+                           STATEFIP=="5"~"AR",
+                           STATEFIP=="6"~"CA",
+                           STATEFIP=="8"~"CO",
+                           STATEFIP=="9"~"CT",
+                           STATEFIP=="10"~"DE",
+                           STATEFIP=="11"~"DC",
+                           STATEFIP=="12"~"FL",
+                           STATEFIP=="13"~"GA",
+                           STATEFIP=="15"~"HI",
+                           STATEFIP=="16"~"ID",
+                           STATEFIP=="17"~"IL",
+                           STATEFIP=="18"~"IN",
+                           STATEFIP=="19"~"IA",
+                           STATEFIP=="20"~"KS",
+                           STATEFIP=="21"~"KY",
+                           STATEFIP=="22"~"LA",
+                           STATEFIP=="23"~"ME",
+                           STATEFIP=="24"~"MD",
+                           STATEFIP=="25"~"MA",
+                           STATEFIP=="26"~"MI",
+                           STATEFIP=="27"~"MN",
+                           STATEFIP=="28"~"MS",
+                           STATEFIP=="29"~"MO",
+                           STATEFIP=="30"~"MT",
+                           STATEFIP=="31"~"NE",
+                           STATEFIP=="32"~"NV",
+                           STATEFIP=="33"~"NH",
+                           STATEFIP=="34"~"NJ",
+                           STATEFIP=="35"~"NM",
+                           STATEFIP=="36"~"NY",
+                           STATEFIP=="37"~"NC",
+                           STATEFIP=="38"~"ND",
+                           STATEFIP=="39"~"OH",
+                           STATEFIP=="40"~"OK",
+                           STATEFIP=="41"~"OR",
+                           STATEFIP=="42"~"PA",
+                           STATEFIP=="44"~"RI",
+                           STATEFIP=="45"~"SC",
+                           STATEFIP=="46"~"SD",
+                           STATEFIP=="47"~"TN",
+                           STATEFIP=="48"~"TX",
+                           STATEFIP=="49"~"UT",
+                           STATEFIP=="50"~"VT",
+                           STATEFIP=="51"~"VA",
+                           STATEFIP=="53"~"WA",
+                           STATEFIP=="54"~"WV",
+                           STATEFIP=="55"~"WI",
+                           STATEFIP=="56"~"WY")) 
+new_data_census$STATEFIP<-NULL
+
+unique(new_data_census$State) #checking
+unique(new_data_survey$State)
+
+#barplots for each variable from our survey dataset
+vote_intention <- ggplot(data=new_data_survey, aes(x=vote_intention))+geom_bar()
+
+vote_2020 <- ggplot(data=new_data_survey, aes(x=vote_2020))+geom_bar()
+
+Gender <- ggplot(data=new_data_survey, aes(x=Gender))+geom_bar()
+
+Household_Income <- ggplot(data=new_data_survey, aes(x=Household_Income))+geom_bar()
+
+Age <- ggplot(data=new_data_survey, aes(x=Age))+geom_bar()
+
+Race <- ggplot(data=new_data_survey, aes(x=Race))+geom_bar()
+
+Education <- ggplot(data=new_data_survey, aes(x=Education))+geom_bar()
+
+State <- ggplot(data=new_data_survey, aes(x=State))+geom_bar()
+
+ggarrange(vote_intention, vote_2020, Gender, Household_Income, Age, Race,Education, State, ncol = 2, nrow = 4)
+
+
+glimpse(new_data_census)
+
+```
+
+
+# Model
+
+In this report, we will be building a multilevel logistic regression model with post-stratification to predict the overall popular vote of the 2020 American Federal Election. First, we created a multilevel logistic regression model with post-stratification off of the provided information from the Democracy Fund + UCLA Nationscape’s Full Data Set’s ns20200625.dta sample dataset and from the American Community Survey’s 2018 5-year census. A multilevel logistic regression model with post-stratification was chosen for this study because the American Federal Election is very complex, and involves many different aspects and factors. Therefore, to have a better prediction of the outcome, it is better to gather more information, and from the chosen model, we are able to build a model where both level one/individual variables and level two/group variables are being considered.
+
+## Model Specifics
+To build a multilevel logistic regression model to help predict which candidate has the overall popular vote in the current 2020 American Federal Election, we chose nine predictor variables. The first two selected predictor variables were “registration”, and “vote_intention”, which respectively tells us whether the person is eligible to vote and if they have any intentions to vote. This is important as only the people who are eligible and who may have an intention to vote will actually factor into this study, therefore, those who are not eligible and who have sternly stated they are not voting were removed from the data. Another important predictor variable that was extracted was “vote_2020”, which essentially is the variable of interest, which is who the person will vote for in the 2020 American Federal Election. Here, another cleaning was performed, and only those who were voting for either Donald Trump or Joe Biden remained, and those who were undecided or were voting for someone else were removed. This is because currently the two main strongest competitors are Donald Trump and Joe Biden, thus it will be better to focus our model on them. To further analyze and study this case, one’s age, gender, ethnicity, household income, education level, and home state, were also included as predictor variables to help us see if these few factors had any impacts on one’s final choice/vote. Together, from these nine predictor variables, we now have data on an individual level and at a group overall level. After that, a cleaning was also performed on the census data, so that the variables selected from the census data also matched with the selected predictor variables from the sample/survey dataset. 
+
+In our model, we used the Frequentist approach, and created cells and focused on gender, age, and race, which will be later explained below. With that, we ran our model, and it can be seen that $$\beta_0$$ , the intercept is 0.703094, meaning when all other predictor variables do not exist, the probability of Donald Trump winning will be 70.31%. Next, all the estimated under fixed values below the intercept, $$\beta_0$$ ,	are our $$\beta_1$$ to $$\beta_n$$, which represents the slopes of our variables in each group. 
+
+To test whether we have a strong model or not, we performed an area under the curve test. The result from the area under the curve test was 0.7239, which means our multilevel logistic model is strong and pretty accurate as 0.7239 is far greater than 0.5 which represents blindly guessing as there are only two choices (Donald Trump or Joe Biden).
+
+
+```{r}
+set.seed(10000000) #make sure our data is unique
+data_survey <- new_data_survey %>% select(vote_2020, Gender, Household_Income, Education, State, Age, Race)
+data_census <- new_data_census %>% select(PERWT, Gender, Age, Race, Household_Income, Education, State)
+
+#creating cells of Gender and Age
+data_survey$cell <- paste(data_survey$Gender, data_survey$Age)
+data_census$cell <- paste(data_census$Gender, data_census$Age)
+
+colname_survey <- c("vote_2020", "Gender", "Household_Income", "Education", "State", "Age", "Race", "cell")
+data_survey[colname_survey] <- lapply(data_survey[colname_survey], factor) 
+colname_census <- c("Gender", "Household_Income", "Education", "State", "Age", "Race", "cell")
+data_census[colname_census] <- lapply(data_census[colname_census], factor) 
+data_survey$vote_2020 <- relevel(data_survey$vote_2020, ref = "Joe Biden") #predicting the probability of voting for Trump
+
+length(unique(data_survey$cell)) #checking to see if suvry and census still match
+length(unique(data_census$cell))
+
+library(lme4)
+library(brms)
+library(tidybayes)
+library(caret)
+library(ROCR)
+library(pROC)
+
+#Model 1 with Gender, Race and Age
+model1 <- glmer(vote_2020 ~ (1 + Gender + Race|cell) + Household_Income + Education + State + Age,
+                data = data_survey, 
+                family = binomial)
+
+summary(model1)
+
+prob1 <- predict(model1, type = c('response'))
+model1_result <- ifelse(prob1 >= 0.5, "Joe Biden", "Donald Trump")
+data_survey_result <- cbind(data_survey, model1_result)
+
+#testing to see if we have a good model or not
+roc<- roc(data_survey_result$vote_2020, prob1)
+auc(roc)
+plot(roc, auc.polygon=TRUE, print.auc = TRUE,asp = NA)
+```
+
+
+
+## Post-Stratification 
+Post-stratification is used to reduce bias and error in our prediction. To perform post-stratification, we need to create cells based on demographics from the census population, and then apply the sample/survey estimate probabilities into each cell to estimate each response variable. Each estimate from each cell will differ, and thus we will have to combine them together by weighing them respectively to their proportions in the census population; this is known as the post-stratification estimate, $$𝑦^{PS}$$. In our study, we created a cell of one’s age and gender, because we believe that these two factors heavily influence how one thinks and how one will vote. For example, the boomer generation’s mindset and generation Z’s mindsets are completely different and will most likely cause differences in their votes. Gender plays a huge role in American politics, as Donald Trump is known for gender inequality and that he is more biased towards men, therefore men may have a higher probability of voting for Donald Trump than women. Along with that, another factor we also chose to heavily focus on was race in our model. This is because currently, racial injustice has become a very big issue in America, and it has thrown the entire country in uproar. Unlike Joe Biden, Donald Trump is not someone who actively supports racial justice, therefore we believe this is currently an important factor to consider, as most likely Joe Biden will win the votes of the people of colour. 
+
+## Factoring In The Electoral College
+After computing the respective probabilities of both Joe Biden and Donald Trump votes, we applied their probabilities to the census dataset, and obtained the approximate amount of votes that they are each predicted to receive, with the person’s weights already included. However, these are not our final numbers and/or proportions because in the United States of America, the Federal Election is not won by the majority of votes. Instead, the USA has a system called the “Electoral College”, where each state has a fixed amount of electoral votes, totaling 538 electoral votes in across the country. To win the election a majority of 270 electoral votes are needed. How it works is that, whichever candidate wins the state, that candidate will receive all the electoral votes from that state and the loser will receive none, thus creating the problem of not having the candidate with the majority of the citizens votes becoming the new president. This is an important factor to consider, as this is how Donald Trump was able to win the 2016 American Federal Elections when Hillary Clinton had more citizen votes. To make our prediction more accurate, we decided to implement and simulate the Electoral College in our model.
+
+```{r}
+set.seed(10000000)
+# Here we calculated the post-stratification estimate
+data_census$estimate_logodds <-
+  model1 %>%
+  predict(newdata = data_census)
+
+data_census$estimate <-
+  exp(data_census$estimate_logodds)/(1+exp(data_census$estimate_logodds))
+
+print(data_census %>%
+  mutate(alp_predict_prop = estimate*PERWT) %>%
+  summarise(alp_predict = sum(alp_predict_prop)/sum(PERWT)))
+```
+
+
+```{r}
+vote_probability <- predict(model1,data_census[,c("Gender", "Age", "Race", "Household_Income", "Education", "State","cell")],type="response")
+vote_prediction <- ifelse(vote_probability > 0.5, "Joe Biden", "Donald Trump")
+data_census_result <- cbind(data_census,vote_prediction)
+
+#including person's weight as said
+data_census_result$trump <- ifelse(data_census_result$vote_prediction == "Donald Trump", data_census_result$PERWT, 0)
+data_census_result$biden <- ifelse(data_census_result$vote_prediction == "Joe Biden", data_census_result$PERWT, 0)
+
+#finding the votes per state
+states_prediction <- data_census_result %>% group_by(State) %>% summarise(Trump = sum(trump), Biden = sum(biden))
+states_prediction$Winner <- ifelse(states_prediction$Trump > states_prediction$Biden,
+                                   "Donald Trump","Joe Biden")
+
+#implementing the Electoral College
+states_prediction <- states_prediction %>% 
+  mutate(electoral_votes = case_when(State=="AL"~9,
+                                     State=="AK"~3,
+                                     State=="AZ"~11,
+                                     State=="AR"~6,
+                                     State=="CA"~55,
+                                     State=="CO"~9,
+                                     State=="CT"~7,
+                                     State=="DE"~3,
+                                     State=="DC"~3,
+                                     State=="FL"~29,
+                                     State=="GA"~16,
+                                     State=="HI"~4,
+                                     State=="ID"~4,
+                                     State=="IL"~20,
+                                     State=="IN"~11,
+                                     State=="IA"~6,
+                                     State=="KS"~6,
+                                     State=="KY"~8,
+                                     State=="LA"~8,
+                                     State=="ME"~4,
+                                     State=="MD"~10,
+                                     State=="MA"~11,
+                                     State=="MI"~16,
+                                     State=="MN"~10,
+                                     State=="MS"~6,
+                                     State=="MO"~10,
+                                     State=="MT"~3,
+                                     State=="NE"~5,
+                                     State=="NV"~6,
+                                     State=="NH"~4,
+                                     State=="NJ"~14,
+                                     State=="NM"~5,
+                                     State=="NY"~29,
+                                     State=="NC"~15,
+                                     State=="ND"~3,
+                                     State=="OH"~18,
+                                     State=="OK"~7,
+                                     State=="OR"~7,
+                                     State=="PA"~20,
+                                     State=="RI"~4,
+                                     State=="SC"~9,
+                                     State=="SD"~3,
+                                     State=="TN"~11,
+                                     State=="TX"~38,
+                                     State=="UT"~6,
+                                     State=="VT"~3,
+                                     State=="VA"~13,
+                                     State=="WA"~12,
+                                     State=="WV"~5,
+                                     State=="WI"~10,
+                                     State=="WY"~3)) 
+
+
+final_result <- states_prediction %>% group_by(Winner) %>% summarise(Votes = sum(electoral_votes)) #final results with the electoral votes
+glimpse(final_result)
+
+
+
+```
+#Save the final datasets
+```{r}
+write_csv(data_census, "data_census.csv")
+write_csv(data_survey, "data_survey.csv")
+```
+
+
+
+# Results
+
+The calculation post-stratification estimate, $$𝑦^{PS}$$, for our model was 0.4603834. This result is strictly based on citizen votes and not yet including the electoral votes. This means that after weighing the voters in each of our cells group, our aggregated prediction of the probability of Donald Trump winning is approximately 46.04% and the probability of Joe Biden winning is approximately 53.96%. This is a prediction strictly based on the nine predictor variables chosen for our model, and after dividing them into cells of age and gender. 
+
+# Discussion
+
+Throughout this analysis, we created and performed a multilevel logistic regression model to minimize the biases and errors when predicting the outcome of the 2020 American Federal Election. We used the post-stratification method to merge and use data from both our sample data set and our census, which represents the population. This way, we have real information coming in from the census, which will then result in a more accurate prediction and outcome of our model. With our model, focusing mainly on, one’s age, gender and race, we computed a post-stratification estimate, $$𝑦^{PS}$$, of 0.4603834 for Donald Trump and 0.5396166 for Joe Biden. 
+
+Near the beginning of this study, we also drew a barplots for each graph measuring their respective counts. It can be seen that in the one's voting intention barplot, Joe Biden was shown to lead through our sample data. From simply calculating $$𝑦^{PS}$$, and not including the electorial votes, we can see that that is indeed the case, as Joe Biden had a $$𝑦^{PS}$$ of 53.96. However, in the end, with all the data combined together, and with the inclusion of the Electoral College, our final prediction is that Donald Trump will win the 2020 American Federal Election by roughly 55% (295/538) and Joe Biden will lose by roughly 45%. With both of these results, these show that the American Federal Election system is a very complex system, and that there are many different factors and aspects that may play an influential role in the final result of the election. 
+
+## Weaknesses
+
+As it can be seen, the American Federal Election is an incredibly complex system with many different and complicated factors influencing it. To create this study and prediction model, we had to simplify the situation more and focus on the main factors affecting the election. Therefore, there definitely exists some weaknesses in our model that could potentially influence our final result in the wrong direction. 
+
+One obvious factor to keep in mind is that the census used in this study was from 2018, thus meaning that the data is already two years old. Since those two years, there now exists new eligible voters, and voters may have different thoughts and opinions than what they did in 2018. Therefore, the first weakness is that our census is not up to date. Following that, in the beginning, when selecting and cleaning our predictor variables, a lot of small information was deleted. For example, in our model, we only considered people who will vote for Donald Trump or Joe Biden and deleted anyone who was undecided and anyone who was going to vote for another candidate. This definitely could have swayed the results in another direction as there was a possibility that at the last minute, people decided to vote and/or switch to vote for either Donald Trump or Joe Biden. There also is a possibility that the majority of the people who were undecided ended up voting for Joe Biden, and thus potentially resulting in the opposite of our model's predicted winner, Donald Trump. Along with that, another potential weakness is that we had to simplify our datasets and model so that it could actually run in R. As stated before, we did this by mainly only focusing on gender, age and race, as we thought they had significant influences on the election outcome.Although it was proved that we have a strong model through the area under the curve, these are simply based on our opinions, and there may be an even stronger models out there with different predictor variables that may just simply result in a completely different conclusion than ours. 
+
+
+## Next Steps
+
+In the future, to further improve our model, we can start by tackling our weaknesses. Finding a more recent and more up to date census or annual population survey will result in a much more reliable and accurate result. Luckily for us, another way to improve our model is to compare our model’s predicted results with the actual results that will occur on November 3, 2020. Not only can we see if we have predicted the correct winner or not, but we can also see how accurate our data actually is. We will have the chance to see if our nine predictor variables did indeed heavily impact the votes, or not. In our modern day and age, we will have access to fresh and reliable data detailing everything that will happen in the actual election, thus we can also directly see and analyze what we predicted correctly and what we missed when creating our model.
+
+
+# References
+1. Tausanovitch, Chris and Lynn Vavreck. 2020. Democracy Fund + UCLA Nationscape, October 10-17, 2019 (version 20200814). Retrieved from https://www.voterstudygroup.org/downloads?key=412bda07-e177-4cd0-92fa-fe6ff4739dd2.
+
+2. Team, M. (n.d.). U.S. CENSUS DATA FOR SOCIAL, ECONOMIC, AND HEALTH RESEARCH. Retrieved November 02, 2020, from https://doi.org/10.18128/D010.V10.0
+
+3. United States Electoral College Votes by State. (n.d.). Retrieved November 02, 2020, from https://www.britannica.com/topic/United-States-Electoral-College-Votes-by-State-1787124
+
+4. List of All 50 US State Abbreviations. (n.d.). Retrieved November 02, 2020, from https://abbreviations.yourdictionary.com/articles/state-abbrev.html
+
+
+
+
